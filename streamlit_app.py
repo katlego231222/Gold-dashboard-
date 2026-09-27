@@ -1,213 +1,112 @@
-import streamlit as st, requests, pandas as pd, numpy as np
-from datetime import datetime
-import plotly.graph_objects as go
+import streamlit as st, requests, pandas as pd
 import streamlit.components.v1 as components
-
+import plotly.graph_objects as go
 try:
  from streamlit_autorefresh import st_autorefresh
- st_autorefresh(interval=10000, key="autoalert")
+ st_autorefresh(interval=10000, key="5_15_only")
 except: pass
 
-st.set_page_config(layout="centered", page_title="Katlego AUTO ALERT + TV Levels", page_icon="🚨")
-st.markdown("<style>.stApp{background:#0a0a0a;color:#fff}.box{background:#111;border:2px solid #00ff88;border-radius:14px;padding:12px}.buy{background:#00ff88;color:#000;border-radius:8px;padding:8px 12px;font-weight:900}.sell{background:#ff3333;color:#fff;border-radius:8px;padding:8px 12px;font-weight:900}</style>", unsafe_allow_html=True)
-
-if 'prev_signal' not in st.session_state: st.session_state.prev_signal=None
+st.set_page_config(layout="centered", page_title="5M 15M CRT S&D", page_icon="🏦")
+st.markdown("<style>.stApp{background:#0a0a0a;color:#fff}.box{background:#111;border:2px solid #ffcc00;border-radius:12px;padding:10px}.buy{background:#00ff88;color:#000;border-radius:8px;padding:8px;font-weight:900}.sell{background:#ff3333;color:#fff;border-radius:8px;padding:8px;font-weight:900}</style>", unsafe_allow_html=True)
 
 MY_PHONE="27637247675"
 
-def get_price(s="XAUUSD"):
- try:
-  if "XAU" in s: return float(requests.get("https://api.gold-api.com/price/XAU",timeout=4).json()['price'])
-  return float(requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={s}",timeout=4).json()['price'])
+def get_price():
+ try: return float(requests.get("https://api.gold-api.com/price/XAU",timeout=4).json()['price'])
  except: return 4265.22
 
-def get_klines(sym, interval, limit=200):
- base=get_price(sym)
+def get_klines(interval, limit=250):
+ base=get_price()
  try:
-  sym2='PAXGUSDT' if 'XAU' in sym else sym
-  url=f"https://api.binance.com/api/v3/klines?symbol={sym2}&interval={interval}&limit={limit}"
-  data=requests.get(url,timeout=6).json()
-  if isinstance(data,list) and len(data)>20:
+  data=requests.get(f"https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval={interval}&limit={limit}",timeout=6).json()
+  if isinstance(data,list) and len(data)>30:
    df=pd.DataFrame(data,columns=['t','o','h','l','c','v','ct','qv','n','tb','tq','i'])
    for k in ['o','h','l','c']: df[k]=pd.to_numeric(df[k], errors='coerce')
    return df
  except: pass
- c=[base+np.random.randn()*base*0.0006 for _ in range(limit)]
+ import numpy as np
+ c=[base+np.random.randn()*base*0.0005 for _ in range(limit)]
  for i in range(1,limit): c[i]=c[i-1]*0.9997+c[i]*0.0003
  return pd.DataFrame({'o':c,'h':[x*1.002 for x in c],'l':[x*0.998 for x in c],'c':c})
 
-def find_zones(df):
- demands=[]; supplies=[]
- for i in range(20, len(df)-2):
-  body=df['c'].iloc[i]-df['o'].iloc[i]
-  rng=df['h'].iloc[i-10:i].max() - df['l'].iloc[i-10:i].min()
-  if body > rng*0.55 and body>0:
-   demands.append({"low":float(df['l'].iloc[i-1:i+1].min()),"high":float(df['l'].iloc[i]),"mid":(float(df['l'].iloc[i-1:i+1].min())+float(df['l'].iloc[i]))/2})
-  if body < -rng*0.55 and body<0:
-   supplies.append({"low":float(df['h'].iloc[i]),"high":float(df['h'].iloc[i-1:i+1].max()),"mid":(float(df['h'].iloc[i])+float(df['h'].iloc[i-1:i+1].max()))/2})
- return demands[-3:], supplies[-3:]
+live=get_price()
+st.markdown(f"<div class='box'><b>🏦 5M & 15M ONLY — CRT + SUPPLY & DEMAND — TP/SL/ENTRY ON TV</b><br>XAUUSD ${live:.2f} LIVE | 0637247675</div>",unsafe_allow_html=True)
 
-live_price=get_price("XAUUSD")
-st.markdown(f"<div class='box'><b>🚨 AUTO ALERT + TV ENTRY/SL/TP DRAWN</b><br>XAUUSD ${live_price:.2f} LIVE | TP/SL on TradingView | Auto WhatsApp 0637247675</div>",unsafe_allow_html=True)
-
-c1,c2,c3,c4=st.columns(4)
-with c1: sym=st.selectbox("Pair",["XAUUSD","BTCUSDT"],0)
-with c2: tf=st.selectbox("TF",["5M","15M"],0)
-with c3: mode=st.selectbox("Mode",["REAL-TIME — Match MT5 ✅","LOCKED 🔒"],0)
-with c4: rr=st.selectbox("RR",["1:3","1:5","1:7"],1)
-
+c1,c2,c3=st.columns(3)
+with c1: tf=st.selectbox("Timeframe",["5M ⚡","15M 🎯"],0)
+with c2: mode=st.selectbox("Mode",["REAL-TIME ✅","LOCKED 🔒"],0)
+with c3: rr=st.selectbox("RR",["1:5 🚀","1:7 💎","1:3"],0)
 interval = "5m" if "5M" in tf else "15m"
 rr_val=int(rr.split(":")[1])
 
-df=get_klines(sym, interval, 200)
-df_live=df
-df_closed=df.iloc[:-1]
-last_closed=float(df_closed['c'].iloc[-1])
+df=get_klines(interval, 250)
+df_c=df.iloc[:-1]
+df_l=df
+pdh=float(df_c['h'].iloc[-40:].max())
+pdl=float(df_c['l'].iloc[-40:].min())
 
-df_live['ema_fast']=df_live['c'].ewm(span=9).mean()
-df_live['ema_slow']=df_live['c'].ewm(span=21).mean()
-df_closed['ema_fast']=df_closed['c'].ewm(span=9).mean()
-df_closed['ema_slow']=df_closed['c'].ewm(span=21).mean()
+demands=[]; supplies=[]
+for i in range(25, len(df_c)-2):
+ body=df_c['c'].iloc[i]-df_c['o'].iloc[i]
+ rng=df_c['h'].iloc[i-10:i].max() - df_c['l'].iloc[i-10:i].min()
+ if body > rng*0.60 and body>0:
+  lo=float(df_c['l'].iloc[i-1:i+1].min()); hi=float(df_c['l'].iloc[i]); demands.append({"low":lo,"high":hi,"mid":(lo+hi)/2})
+ if body < -rng*0.60 and body<0:
+  lo=float(df_c['h'].iloc[i]); hi=float(df_c['h'].iloc[i-1:i+1].max()); supplies.append({"low":lo,"high":hi,"mid":(lo+hi)/2})
 
-if "REAL-TIME" in mode:
- is_buy = df_live['ema_fast'].iloc[-1] > df_live['ema_slow'].iloc[-1] and df_live['c'].iloc[-1] > df_live['ema_fast'].iloc[-1]
- is_sell = df_live['ema_fast'].iloc[-1] < df_live['ema_slow'].iloc[-1] and df_live['c'].iloc[-1] < df_live['ema_fast'].iloc[-1]
- signal="BUY" if is_buy else "SELL" if is_sell else "BUY" if live_price > last_closed else "SELL"
- calc_df=df_live
+use = df_l if "REAL-TIME" in mode else df_c
+use['e9']=use['c'].ewm(9).mean(); use['e21']=use['c'].ewm(21).mean()
+e9=float(use['e9'].iloc[-1 if "REAL-TIME" in mode else -2]); e21=float(use['e21'].iloc[-1 if "REAL-TIME" in mode else -2])
+
+if live >= pdh*0.999 and supplies:
+ sig="SELL"; z=supplies[-1]; entry=z['mid']; sl=z['high']+1.5; tp=pdl; why="CRT High Sweep + Supply"
+elif live <= pdl*1.001 and demands:
+ sig="BUY"; z=demands[-1]; entry=z['mid']; sl=z['low']-1.5; tp=pdh; why="CRT Low Sweep + Demand"
+elif e9>e21 and demands:
+ sig="BUY"; z=demands[-1]; entry=z['mid']; sl=z['low']-1.5; tp=entry+abs(entry-(z['low']-1.5))*rr_val; why="CRT Mid + Demand 5/15M"
 else:
- is_buy = df_closed['ema_fast'].iloc[-2] > df_closed['ema_slow'].iloc[-2]
- signal="BUY" if is_buy else "SELL"
- calc_df=df_closed
+ sig="SELL"; z=supplies[-1] if supplies else {"low":live+2,"high":live+5,"mid":live+2.5}; entry=z['mid']; sl=z['high']+1.5; tp=entry-abs((z['high']+1.5)-entry)*rr_val; why="CRT Mid + Supply 5/15M"
 
-demands, supplies = find_zones(calc_df)
+if "REAL-TIME" in mode and abs(live-entry)>6:
+ entry = live-0.8 if sig=="BUY" else live+0.8; sl = entry-3.2 if sig=="BUY" else entry+3.2; tp = entry+3.2*rr_val if sig=="BUY" else entry-3.2*rr_val
 
-if signal=="BUY":
- zone=demands[-1] if demands else {"low":live_price-5,"high":live_price-2,"mid":live_price-3}
- entry=zone['mid'] if "REAL-TIME" not in mode else live_price - 0.8
- sl=zone['low']-1.2 if demands else entry-3
- tp=entry + abs(entry-sl)*rr_val
-else:
- zone=supplies[-1] if supplies else {"low":live_price+2,"high":live_price+5,"mid":live_price+3}
- entry=zone['mid'] if "REAL-TIME" not in mode else live_price + 0.8
- sl=zone['high']+1.2 if supplies else entry+3
- tp=entry - abs(entry-sl)*rr_val
+sl_d=abs(entry-sl); tp_d=abs(tp-entry)
 
-sl_dist=abs(entry-sl); tp_dist=abs(tp-entry)
-
-# --- TOP PLOTLY CHART (Quick view) ---
 fig=go.Figure()
-fig.add_trace(go.Candlestick(x=list(range(len(calc_df))), open=calc_df['o'], high=calc_df['h'], low=calc_df['l'], close=calc_df['c'], name=interval))
-fig.add_hline(y=entry, line_color="#ffcc00", line_width=3, annotation_text=f"ENTRY {entry:.2f}")
+fig.add_trace(go.Candlestick(x=list(range(len(df_c))), open=df_c['o'], high=df_c['h'], low=df_c['l'], close=df_c['c'], name=interval))
+for d in demands[-2:]: fig.add_hrect(y0=d['low'], y1=d['high'], fillcolor="rgba(0,255,136,0.22)", line_width=0)
+for s in supplies[-2:]: fig.add_hrect(y0=s['low'], y1=s['high'], fillcolor="rgba(255,51,51,0.22)", line_width=0)
+fig.add_hline(y=pdh, line_dash="dot", line_color="#ffaa00", annotation_text=f"PDH {pdh:.2f}")
+fig.add_hline(y=pdl, line_dash="dot", line_color="#ffaa00", annotation_text=f"PDL {pdl:.2f}")
+fig.add_hline(y=entry, line_color="#ffcc00", line_width=4, annotation_text=f"ENTRY {entry:.2f}")
 fig.add_hline(y=sl, line_color="#ff3333", line_width=2, line_dash="dash", annotation_text=f"SL SHORT {sl:.2f}")
-fig.add_hline(y=tp, line_color="#00ff88", line_width=2, line_dash="dash", annotation_text=f"TP LONG {tp:.2f} RR 1:{rr_val}")
-fig.add_hline(y=live_price, line_color="white", line_dash="dot", annotation_text=f"LIVE {live_price:.2f}")
-fig.update_layout(height=380, template="plotly_dark", margin=dict(l=0,r=0,t=10,b=0), xaxis_rangeslider_visible=False, showlegend=False)
+fig.add_hline(y=tp, line_color="#00ff88", line_width=2, line_dash="dash", annotation_text=f"TP LONG {tp:.2f}")
+fig.add_hline(y=live, line_color="white", line_dash="dot", annotation_text=f"LIVE {live:.2f}")
+fig.update_layout(height=400, template="plotly_dark", margin=dict(l=0,r=0,t=10,b=0), xaxis_rangeslider_visible=False, showlegend=False, yaxis=dict(range=[min(entry,sl,tp,live,pdl)-6, max(entry,sl,tp,live,pdh)+6]))
 st.plotly_chart(fig, use_container_width=True)
 
-# --- SIGNAL BOX ---
-if signal=="BUY":
- st.markdown(f"<div class='buy'>✅ {signal} {interval} — ENTRY ${entry:.2f} | SL SHORT ${sl:.2f} -${sl_dist:.1f} | TP LONG ${tp:.2f} +${tp_dist:.1f} RR 1:{rr_val}</div>",unsafe_allow_html=True)
-else:
- st.markdown(f"<div class='sell'>🔴 {signal} {interval} — ENTRY ${entry:.2f} | SL SHORT ${sl:.2f} -${sl_dist:.1f} | TP LONG ${tp:.2f} +${tp_dist:.1f} RR 1:{rr_val}</div>",unsafe_allow_html=True)
+if sig=="BUY": st.markdown(f"<div class='buy'>✅ {sig} {interval} {why} — ENTRY ${entry:.2f} | SL SHORT ${sl:.2f} -${sl_d:.1f} | TP LONG ${tp:.2f} +${tp_d:.1f} RR 1:{rr_val}</div>",unsafe_allow_html=True)
+else: st.markdown(f"<div class='sell'>🔴 {sig} {interval} {why} — ENTRY ${entry:.2f} | SL SHORT ${sl:.2f} -${sl_d:.1f} | TP LONG ${tp:.2f} +${tp_d:.1f} RR 1:{rr_val}</div>",unsafe_allow_html=True)
 
-# --- AUTO ALERT LOGIC ---
-alert_triggered=False
-if st.session_state.prev_signal is not None and st.session_state.prev_signal!= signal:
- alert_triggered=True
- st.session_state.prev_signal=signal
-else:
- if st.session_state.prev_signal is None:
-  st.session_state.prev_signal=signal
-
-if alert_triggered:
- st.balloons()
- components.html(f"""<audio autoplay><source src="https://cdn.pixabay.com/download/audio/2022/03/10/audio_c3a4a3a4a0.mp3" type="audio/mpeg"></audio><script>alert('🚨 SIGNAL FLIP! {st.session_state.prev_signal} -> {signal} {interval} ENTRY {entry:.2f} SL {sl:.2f} TP {tp:.2f}');</script>""",height=0)
- st.error(f"🚨 AUTO ALERT! Signal flipped to {signal} {interval}! ENTRY ${entry:.2f} SL -${sl_dist:.1f} TP +${tp_dist:.1f}")
- # Auto WhatsApp button
- msg=f"🚨 AUTO FLIP {sym} {signal} {interval} ENTRY {entry:.2f} SL SHORT {sl:.2f} -{sl_dist:.1f} TP LONG {tp:.2f} +{tp_dist:.1f} RR 1:{rr_val} LIVE {live_price:.2f} | {mode} | 0637247675"
- import urllib.parse
- link=f"https://wa.me/{MY_PHONE}?text={urllib.parse.quote(msg)}"
- st.link_button(f"📱 AUTO SEND FLIP ALERT TO 0637247675", link, type="primary", use_container_width=True)
-else:
- st.write(f"Monitoring... Current: {signal} | Previous: {st.session_state.prev_signal} | Auto alert when flips")
-
-# --- REAL TRADINGVIEW CHART WITH ENTRY/SL/TP DRAWN ---
-st.write(f"### 📈 REAL MT5 CHART — {interval.upper()} WITH ENTRY/SL/TP DRAWN ON CHART")
-
-tv_html = f"""
-<div id="tv_chart" style="height:600px;"></div>
+st.write(f"### 📈 TRADINGVIEW {interval.upper()} — TP/SL/ENTRY DRAWN")
+components.html(f"""
+<div id="tv5" style="height:600px;"></div>
 <script src="https://s3.tradingview.com/tv.js"></script>
 <script>
-var widget = new TradingView.widget({{
-  "autosize": true,
-  "height": 600,
-  "symbol": "OANDA:XAUUSD",
-  "interval": "{'5' if interval=='5m' else '15'}",
-  "timezone": "Africa/Johannesburg",
-  "theme": "dark",
-  "style": "1",
-  "locale": "en",
-  "toolbar_bg": "#0a0a0a",
-  "enable_publishing": false,
-  "hide_top_toolbar": false,
-  "container_id": "tv_chart"
-}});
-
-widget.onChartReady(function() {{
-  var chart = widget.chart();
-
-  // ENTRY - Yellow
-  chart.createOrderLine()
-   .setText("ENTRY {entry:.2f} {signal}")
-   .setPrice({entry})
-   .setQuantity("")
-   .setLineColor("#ffcc00")
-   .setBodyBackgroundColor("#ffcc00")
-   .setBodyTextColor("#000000")
-   .setLineWidth(2)
-   .setLineStyle(0);
-
-  // SL SHORT - Red
-  chart.createOrderLine()
-   .setText("SL SHORT {sl:.2f} -{sl_dist:.1f}")
-   .setPrice({sl})
-   .setQuantity("")
-   .setLineColor("#ff3333")
-   .setBodyBackgroundColor("#ff3333")
-   .setBodyTextColor("#ffffff")
-   .setLineWidth(2)
-   .setLineStyle(2);
-
-  // TP LONG - Green
-  chart.createOrderLine()
-   .setText("TP LONG {tp:.2f} +{tp_dist:.1f} RR 1:{rr_val}")
-   .setPrice({tp})
-   .setQuantity("")
-   .setLineColor("#00ff88")
-   .setBodyBackgroundColor("#00ff88")
-   .setBodyTextColor("#000000")
-   .setLineWidth(2)
-   .setLineStyle(2);
-
-  // LIVE PRICE - White
-  chart.createPositionLine()
-   .setText("LIVE {live_price:.2f}")
-   .setPrice({live_price})
-   .setQuantity("")
-   .setLineColor("#ffffff")
-   .setBodyBackgroundColor("#ffffff")
-   .setBodyTextColor("#000000")
-   .setLineWidth(1)
-   .setLineStyle(1);
+var w=new TradingView.widget({{"autosize":true,"height":600,"symbol":"OANDA:XAUUSD","interval":"{'5' if interval=='5m' else '15'}","timezone":"Africa/Johannesburg","theme":"dark","style":"1","container_id":"tv5"}});
+w.onChartReady(function(){{
+ var c=w.chart();
+ c.createOrderLine().setText("CRT PDH {pdh:.2f}").setPrice({pdh}).setLineColor("#ffaa00").setBodyBackgroundColor("#ffaa00").setBodyTextColor("#000").setLineWidth(1).setLineStyle(1);
+ c.createOrderLine().setText("CRT PDL {pdl:.2f}").setPrice({pdl}).setLineColor("#ffaa00").setBodyBackgroundColor("#ffaa00").setBodyTextColor("#000").setLineWidth(1).setLineStyle(1);
+ c.createOrderLine().setText("ENTRY {entry:.2f} {sig}").setPrice({entry}).setLineColor("#ffcc00").setBodyBackgroundColor("#ffcc00").setBodyTextColor("#000").setLineWidth(3).setLineStyle(0);
+ c.createOrderLine().setText("SL SHORT {sl:.2f} -{sl_d:.1f}").setPrice({sl}).setLineColor("#ff3333").setBodyBackgroundColor("#ff3333").setBodyTextColor("#fff").setLineWidth(2).setLineStyle(2);
+ c.createOrderLine().setText("TP LONG {tp:.2f} +{tp_d:.1f} RR 1:{rr_val}").setPrice({tp}).setLineColor("#00ff88").setBodyBackgroundColor("#00ff88").setBodyTextColor("#000").setLineWidth(2).setLineStyle(2);
+ c.createPositionLine().setText("LIVE {live:.2f}").setPrice({live}).setLineColor("#fff").setBodyBackgroundColor("#fff").setBodyTextColor("#000");
 }});
 </script>
-"""
-components.html(tv_html, height=620)
+""", height=620)
 
-st.caption("Yellow = ENTRY, Red = SL SHORT (tight), Green = TP LONG (big), White = LIVE MT5 price — All drawn ON TradingView chart!")
-
-if st.button(f"SEND {signal} {interval} ENTRY {entry:.2f} SL {sl:.2f} TP {tp:.2f} -> 0637247675",type="primary",use_container_width=True):
+if st.button(f"SEND {sig} {interval} → 0637247675",type="primary",use_container_width=True):
  import urllib.parse
- msg=f"{signal} {sym} {interval} {mode} ENTRY {entry:.2f} SL SHORT {sl:.2f} -{sl_dist:.1f} TP LONG {tp:.2f} +{tp_dist:.1f} RR 1:{rr_val} LIVE {live_price:.2f} | Chart has levels drawn | 0637247675"
- link=f"https://wa.me/{MY_PHONE}?text={urllib.parse.quote(msg)}"
- st.link_button("SEND TO 0637247675", link, type="primary", use_container_width=True)
+ msg=f"🏦 CRT+S&D {sig} {interval} {why} ENTRY {entry:.2f} SL SHORT {sl:.2f} -{sl_d:.1f} TP LONG {tp:.2f} +{tp_d:.1f} RR 1:{rr_val} PDH {pdh:.2f} PDL {pdl:.2f} LIVE {live:.2f} | TV levels drawn | 0637247675"
+ st.link_button("📱 WHATSAPP 0637247675", f"https://wa.me/{MY_PHONE}?text={urllib.parse.quote(msg)}", type="primary", use_container_width=True)
