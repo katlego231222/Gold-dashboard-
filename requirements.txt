@@ -4,3 +4,4 @@ requests
 yfinance
 plotly
 streamlit-autorefresh
+twilio
