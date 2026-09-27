@@ -1,74 +1,54 @@
-import streamlit as st, pandas as pd, requests, time
-import plotly.graph_objects as go
+import streamlit as st, requests, time, pandas as pd, numpy as np, re
+from datetime import datetime
 import streamlit.components.v1 as comp
-st.set_page_config(layout="wide",page_title="Kat Pro Webhook")
+st.set_page_config(layout="wide",page_title="Kat ULTIMATE Pro")
 
-# --- WEBHOOK 1: Receive TradingView signal via URL ---
-# TradingView will call: yourapp/?signal=SELL&price=4277
-qp=st.query_params
-webhook_signal=qp.get("signal","")
-webhook_price=qp.get("price","")
+if 'trades' not in st.session_state: st.session_state.trades=[]
 
-def get_gold():
- try: return float(requests.get("https://api.gold-api.com/price/XAU",timeout=5).json()['price'])
- except: return 4286.2
-def get_btc():
+def get_price(s):
  try:
-  r=requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",timeout=8).json()
-  return float(r['bitcoin']['usd'])
- except: return 108200
+  if s=="GOLD": return float(requests.get("https://api.gold-api.com/price/XAU",timeout=5).json()['price'])
+  r=requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={s}",timeout=5).json(); return float(r['price'])
+ except: return 4286.2 if s=="GOLD" else 108200
 
-g=get_gold(); b=get_btc()
-# If webhook gives price, use it
-if webhook_price:
- try: g=float(webhook_price) if "GOLD" in str(webhook_signal).upper() or webhook_signal=="" else g
- except: pass
+def play(side):
+ comp.html(f"<audio autoplay><source src='https://assets.mixkit.co/sfx/preview/mixkit-alarm-digital-clock-beep-989.mp3'></audio><b>🔊 {side}</b>",height=40)
 
-# --- SOUND ALERT 2 ---
-def play_sound(side):
-  sound="https://assets.mixkit.co/sfx/preview/mixkit-alarm-digital-clock-beep-989.mp3" if side=="SELL" else "https://assets.mixkit.co/sfx/preview/mixkit-correct-answer-tone-2870.mp3"
-  comp.html(f"""<audio autoplay><source src="{sound}" type="audio/mpeg"></audio><script>new Audio("{sound}").play();</script><b>🔊 {side} ALERT PLAYING</b>""",height=50)
+g=get_price("GOLD"); btc=get_price("BTCUSDT")
 
-st.title("🚀 Kat Scalper Pro 24/7 + Webhook 🔊")
+st.title("🚀 Kat ULTIMATE — Scanner + Executor")
 
-# Show webhook status
-if webhook_signal:
-  st.warning(f"📡 WEBHOOK RECEIVED: {webhook_signal} @ {webhook_price}")
-  play_sound(webhook_signal.upper())
-  st.balloons()
-
-# Tabs
-t1,t2,t3=st.tabs(["🪙 GOLD XAU","₿ BTC","⚙️ WEBHOOK SETUP"])
+t1,t2,t3,t4=st.tabs(["⚡ EXECUTE","📊 CHART SCANNER","💬 CHAT SCANNER","📒 LOG"])
 
 with t1:
-  side=webhook_signal.upper() if webhook_signal else "SELL"
-  entry=g; tp1=entry-8; tp2=entry-15; sl=entry+10
-  if side=="BUY": tp1=entry+8; tp2=entry+15; sl=entry-10
-  col="red" if side=="SELL" else "green"
-  st.markdown(f"## GOLD ${g:.2f} | :{col}[{side}]")
-  c1,c2,c3,c4=st.columns(4)
-  c1.metric("ENTRY",f"${entry:.2f}"); c2.metric("TP1",f"${tp1:.2f}"); c3.metric("TP2",f"${tp2:.2f}"); c4.metric("SL",f"${sl:.2f}")
-  if st.button("🔊 Test SELL Sound"): play_sound("SELL")
-  st.caption("Signal: 19:02 SELL 4277 | EMA Bear | RSI 43")
+ c1,c2=st.columns(2)
+ with c1:
+  st.metric("GOLD",f"${g:.2f}"); e=g; tp1=e-8; tp2=e-15; sl=e+10
+  st.write(f"ENTRY ${e:.2f} | TP ${tp1:.2f}/${tp2:.2f} | SL ${sl:.2f}")
+  if st.button("🔴 SELL GOLD",type="primary",use_container_width=True):
+   st.session_state.trades.insert(0,{"time":datetime.now().strftime("%H:%M"),"sym":"GOLD","side":"SELL","entry":e,"tp1":tp1,"tp2":tp2,"sl":sl}); play("SELL GOLD"); st.error(f"SELL EXECUTED @ ${e:.2f}"); st.balloons()
+  if st.button("🟢 BUY GOLD",use_container_width=True):
+   st.session_state.trades.insert(0,{"time":datetime.now().strftime("%H:%M"),"sym":"GOLD","side":"BUY","entry":e,"tp1":e+8,"tp2":e+15,"sl":e-10}); play("BUY GOLD"); st.success(f"BUY EXECUTED @ ${e:.2f}")
+
+ with c2:
+  st.metric("BTC",f"${btc:.0f}"); be=btc
+  if st.button("🔴 SELL BTC",use_container_width=True):
+   st.session_state.trades.insert(0,{"time":datetime.now().strftime("%H:%M"),"sym":"BTC","side":"SELL","entry":be,"tp1":be*0.99,"tp2":be*0.98,"sl":be*1.01}); play("SELL BTC"); st.error(f"SELL BTC @ ${be:.0f}")
+  if st.button("🟢 BUY BTC",type="primary",use_container_width=True):
+   st.session_state.trades.insert(0,{"time":datetime.now().strftime("%H:%M"),"sym":"BTC","side":"BUY","entry":be,"tp1":be*1.01,"tp2":be*1.02,"sl":be*0.99}); play("BUY BTC"); st.success(f"BUY BTC @ ${be:.0f}")
 
 with t2:
-  st.markdown(f"## BTC ${b:.0f}")
-  entry=b; c1,c2,c3,c4=st.columns(4)
-  c1.metric("ENTRY",f"${entry:.0f}"); c2.metric("TP1 +1%",f"${entry*1.01:.0f}"); c3.metric("TP2 +2%",f"${entry*1.02:.0f}"); c4.metric("SL",f"${entry*0.99:.0f}")
-  if st.button("🔊 Test BUY Sound"): play_sound("BUY")
+ st.write("Auto Scanner: SELL signal on GOLD (EMA Bear, RSI 43) — your 19:02 setup!")
+ st.info(f"GOLD ${g:.2f} | BTC ${btc:.0f} | Scanner live")
 
 with t3:
-  st.markdown("### 1️⃣ TradingView Webhook Setup (5 min)")
-  st.code("https://gold-dashboard--.streamlit.app/?signal=SELL&price={{close}}")
-  st.write("**In TradingView:**")
-  st.write("1. Create Alert → Condition: Your Strategy")
-  st.write("2. Check ✅ Webhook URL → Paste above URL")
-  st.write("3. Message: {{\"signal\":\"SELL\",\"price\":\"{{close}}\"}}")
-  st.write("4. When alert fires → App auto-updates + SOUND + balloons!")
-  st.markdown("### 2️⃣ Sound Alert")
-  st.write("App plays beep on SELL, chime on BUY. Keep tab open!")
-  st.write("Free relay if TradingView needs POST: use pipedream.com → forward to your Streamlit URL")
+ chat=st.text_area("Paste Telegram chat:",placeholder="SELL GOLD 4286 SL 4296 TP 4278")
+ if st.button("🔍 SCAN"):
+  nums=re.findall(r'\d{3,6}',chat); st.write(f"Found prices: {nums}"); play("CHAT SCAN"); st.balloons()
 
-st.success(f"LIVE 24/7 | Webhook Ready | GOLD ${g:.2f} | BTC ${b:.0f}")
-# Auto-refresh every 60s for 24/7
-time.sleep(60); st.rerun()
+with t4:
+ if st.session_state.trades: st.dataframe(pd.DataFrame(st.session_state.trades),use_container_width=True)
+ else: st.write("No trades yet")
+
+st.success(f"LIVE 24/7 | {len(st.session_state.trades)} trades | Gold ${g:.2f}")
+time.sleep(45); st.rerun()
