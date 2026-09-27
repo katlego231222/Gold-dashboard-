@@ -5,19 +5,12 @@ import streamlit.components.v1 as components
 
 try:
  from streamlit_autorefresh import st_autorefresh
- st_autorefresh(interval=15000, key="5m15mfix")
+ st_autorefresh(interval=8000, key="sync")
 except:
  pass
 
-st.set_page_config(layout="centered", page_title="Katlego 5M 15M LOCKED", page_icon="🔒")
-st.markdown("<style>.stApp{background:#0a0a0a;color:#fff}.box{background:#111;border:2px solid #00ff88;border-radius:14px;padding:12px}.entry{background:#ffcc00;color:#000;border-radius:8px;padding:8px 12px;font-weight:900}.sl{background:#ff3333;color:#fff;border-radius:8px;padding:8px 12px;font-weight:900}.tp{background:#00ff88;color:#000;border-radius:8px;padding:8px 12px;font-weight:900}</style>", unsafe_allow_html=True)
-
-if 'lock_sig' not in st.session_state:
- st.session_state.lock_sig=None
- st.session_state.lock_entry=None
- st.session_state.lock_sl=None
- st.session_state.lock_tp=None
- st.session_state.lock_time=None
+st.set_page_config(layout="centered", page_title="Katlego MT5 SYNC", page_icon="✅")
+st.markdown("<style>.stApp{background:#0a0a0a;color:#fff}.box{background:#111;border:2px solid #ffcc00;border-radius:14px;padding:12px}.buy{background:#00ff88;color:#000;border-radius:8px;padding:8px 12px;font-weight:900}.sell{background:#ff3333;color:#fff;border-radius:8px;padding:8px 12px;font-weight:900}</style>", unsafe_allow_html=True)
 
 MY_PHONE="27637247675"
 
@@ -53,127 +46,97 @@ def find_zones(df):
   body=df['c'].iloc[i]-df['o'].iloc[i]
   rng=df['h'].iloc[i-10:i].max() - df['l'].iloc[i-10:i].min()
   if body > rng*0.55 and body>0:
-   low_val=float(df['l'].iloc[i-1:i+1].min())
-   high_val=float(df['l'].iloc[i])
-   mid_val=(low_val+high_val)/2
-   demands.append({"low":low_val,"high":high_val,"mid":mid_val})
+   demands.append({"low":float(df['l'].iloc[i-1:i+1].min()),"high":float(df['l'].iloc[i]),"mid":(float(df['l'].iloc[i-1:i+1].min())+float(df['l'].iloc[i]))/2})
   if body < -rng*0.55 and body<0:
-   low_val=float(df['h'].iloc[i])
-   high_val=float(df['h'].iloc[i-1:i+1].max())
-   mid_val=(low_val+high_val)/2
-   supplies.append({"low":low_val,"high":high_val,"mid":mid_val})
+   supplies.append({"low":float(df['h'].iloc[i]),"high":float(df['h'].iloc[i-1:i+1].max()),"mid":(float(df['h'].iloc[i])+float(df['h'].iloc[i-1:i+1].max()))/2})
  return demands[-3:], supplies[-3:]
 
 price=get_price("XAUUSD")
-st.markdown(f"<div class='box'><b>🔒 5M & 15M ONLY — ENTRY + SHORT SL + LONG TP — FIXED</b><br>XAUUSD ${price:.2f} | HTF 15M | WA 0637247675</div>",unsafe_allow_html=True)
 
-c1,c2,c3=st.columns(3)
-with c1:
+# NEW TOGGLE
+st.markdown(f"<div class='box'><b>🔄 MT5 SYNC FIX — Real Time BUY = App BUY</b><br>XAUUSD ${price:.2f} LIVE</div>",unsafe_allow_html=True)
+
+colA,colB,colC,colD=st.columns(4)
+with colA:
  sym=st.selectbox("Pair",["XAUUSD","BTCUSDT"],0)
-with c2:
- tf=st.selectbox("Timeframe",["5M Entry","15M Entry"],0)
-with c3:
+with colB:
+ tf=st.selectbox("TF",["5M","15M"],0)
+with colC:
+ mode=st.selectbox("Mode",["REAL-TIME — Match MT5 ✅","LOCKED — No Repaint 🔒"],0)
+with colD:
  rr=st.selectbox("RR",["1:3","1:5","1:7"],1)
 
 interval = "5m" if "5M" in tf else "15m"
 rr_val=int(rr.split(":")[1])
 
-df_htf=get_klines(sym, "15m", 150)
-df_htf['ema20']=df_htf['c'].ewm(span=20).mean()
-df_htf['ema50']=df_htf['c'].ewm(span=50).mean()
-htf_trend="BULL" if df_htf['ema20'].iloc[-2] > df_htf['ema50'].iloc[-2] else "BEAR"
-
 df=get_klines(sym, interval, 200)
+df_live=df # live includes current candle
 df_closed=df.iloc[:-1]
 live_price=get_price(sym)
 last_closed=float(df_closed['c'].iloc[-1])
 
-pdh=float(df_closed['h'].iloc[-20:].max())
-pdl=float(df_closed['l'].iloc[-20:].min())
-
-demands, supplies = find_zones(df_closed)
-
+# REAL-TIME EMAs
+df_live['ema_fast']=df_live['c'].ewm(span=9).mean()
+df_live['ema_slow']=df_live['c'].ewm(span=21).mean()
 df_closed['ema_fast']=df_closed['c'].ewm(span=9).mean()
 df_closed['ema_slow']=df_closed['c'].ewm(span=21).mean()
-bull_cross = df_closed['ema_fast'].iloc[-2] > df_closed['ema_slow'].iloc[-2] and df_closed['ema_fast'].iloc[-3] <= df_closed['ema_slow'].iloc[-3]
-bear_cross = df_closed['ema_fast'].iloc[-2] < df_closed['ema_slow'].iloc[-2] and df_closed['ema_fast'].iloc[-3] >= df_closed['ema_slow'].iloc[-3]
 
-new_signal=None
-if htf_trend=="BULL" and bull_cross:
- new_signal="BUY"
-elif htf_trend=="BEAR" and bear_cross:
- new_signal="SELL"
+if "REAL-TIME" in mode:
+ # MATCHES MT5 INSTANTLY — uses live candle
+ is_buy = df_live['ema_fast'].iloc[-1] > df_live['ema_slow'].iloc[-1] and df_live['c'].iloc[-1] > df_live['ema_fast'].iloc[-1]
+ is_sell = df_live['ema_fast'].iloc[-1] < df_live['ema_slow'].iloc[-1] and df_live['c'].iloc[-1] < df_live['ema_fast'].iloc[-1]
+ signal="BUY" if is_buy else "SELL" if is_sell else "BUY" if live_price > last_closed else "SELL"
+ calc_df=df_live
 else:
- new_signal=st.session_state.lock_sig
+ # LOCKED — uses closed
+ is_buy = df_closed['ema_fast'].iloc[-2] > df_closed['ema_slow'].iloc[-2]
+ is_sell = df_closed['ema_fast'].iloc[-2] < df_closed['ema_slow'].iloc[-2]
+ signal="BUY" if is_buy else "SELL"
+ calc_df=df_closed
 
-if st.session_state.lock_sig is None or (new_signal!=st.session_state.lock_sig and new_signal in ["BUY","SELL"]):
- if new_signal=="BUY" and demands:
-  zone=demands[-1]
-  entry=zone['mid']
-  sl=zone['low']-1.5
-  tp=entry+abs(entry-sl)*rr_val
- elif new_signal=="SELL" and supplies:
-  zone=supplies[-1]
-  entry=zone['mid']
-  sl=zone['high']+1.5
-  tp=entry-abs(entry-sl)*rr_val
- else:
-  if new_signal=="BUY":
-   entry=last_closed-2
-   sl=entry-3
-   tp=entry+3*rr_val
-  else:
-   entry=last_closed+2
-   sl=entry+3
-   tp=entry-3*rr_val
- st.session_state.lock_sig=new_signal
- st.session_state.lock_entry=entry
- st.session_state.lock_sl=sl
- st.session_state.lock_tp=tp
- st.session_state.lock_time=datetime.now().strftime("%H:%M:%S")
+demands, supplies = find_zones(calc_df)
 
-signal=st.session_state.lock_sig
-entry=st.session_state.lock_entry
-sl=st.session_state.lock_sl
-tp=st.session_state.lock_tp
-
-if signal is None:
- signal="BUY" if htf_trend=="BULL" else "SELL"
- entry=last_closed
- sl=entry-3 if signal=="BUY" else entry+3
- tp=entry+15 if signal=="BUY" else entry-15
+# ENTRY + SHORT SL + LONG TP — ONLY 5M/15M
+if signal=="BUY":
+ zone=demands[-1] if demands else {"low":live_price-5,"high":live_price-2,"mid":live_price-3}
+ entry=zone['mid'] if "REAL-TIME" not in mode else live_price - 1 # Real-time entry near live price
+ sl=zone['low']-1.2 if demands else entry-3
+ tp=entry + abs(entry-sl)*rr_val
+else:
+ zone=supplies[-1] if supplies else {"low":live_price+2,"high":live_price+5,"mid":live_price+3}
+ entry=zone['mid'] if "REAL-TIME" not in mode else live_price + 1
+ sl=zone['high']+1.2 if supplies else entry+3
+ tp=entry - abs(entry-sl)*rr_val
 
 sl_dist=abs(entry-sl)
 tp_dist=abs(tp-entry)
 
+# CHART
 fig=go.Figure()
-fig.add_trace(go.Candlestick(x=list(range(len(df_closed))), open=df_closed['o'], high=df_closed['h'], low=df_closed['l'], close=df_closed['c'], name=interval))
-for d in demands:
- fig.add_hrect(y0=d['low'], y1=d['high'], fillcolor="rgba(0,255,136,0.18)", line_width=0)
-for s in supplies:
- fig.add_hrect(y0=s['low'], y1=s['high'], fillcolor="rgba(255,51,51,0.18)", line_width=0)
-fig.add_hline(y=pdh, line_dash="dot", line_color="#ffaa00", annotation_text=f"PDH {pdh:.2f}")
-fig.add_hline(y=pdl, line_dash="dot", line_color="#ffaa00", annotation_text=f"PDL {pdl:.2f}")
+plot_df = df_live if "REAL-TIME" in mode else df_closed
+fig.add_trace(go.Candlestick(x=list(range(len(plot_df))), open=plot_df['o'], high=plot_df['h'], low=plot_df['l'], close=plot_df['c'], name=interval))
 fig.add_hline(y=entry, line_color="#ffcc00", line_width=4, annotation_text=f"ENTRY {entry:.2f}")
-fig.add_hline(y=sl, line_color="#ff3333", line_width=3, line_dash="dash", annotation_text=f"SL {sl:.2f}")
-fig.add_hline(y=tp, line_color="#00ff88", line_width=3, line_dash="dash", annotation_text=f"TP {tp:.2f}")
-fig.add_hline(y=live_price, line_color="white", line_dash="dot", annotation_text=f"LIVE {live_price:.2f}")
+fig.add_hline(y=sl, line_color="#ff3333", line_width=3, line_dash="dash", annotation_text=f"SL SHORT {sl:.2f} -{sl_dist:.1f}")
+fig.add_hline(y=tp, line_color="#00ff88", line_width=3, line_dash="dash", annotation_text=f"TP LONG {tp:.2f} +{tp_dist:.1f}")
+fig.add_hline(y=live_price, line_color="white", line_dash="dot", annotation_text=f"LIVE NOW {live_price:.2f} MT5")
 
-ymin_val=min(entry, sl, tp, live_price, pdl) - 5
-ymax_val=max(entry, sl, tp, live_price, pdh) + 5
-fig.update_layout(height=520, template="plotly_dark", margin=dict(l=0,r=0,t=10,b=0), xaxis_rangeslider_visible=False, showlegend=False, yaxis=dict(range=[ymin_val, ymax_val]))
+ymin_val=min(entry, sl, tp, live_price) - 6
+ymax_val=max(entry, sl, tp, live_price) + 6
+fig.update_layout(height=500, template="plotly_dark", margin=dict(l=0,r=0,t=10,b=0), xaxis_rangeslider_visible=False, showlegend=False, yaxis=dict(range=[ymin_val, ymax_val]))
 st.plotly_chart(fig, use_container_width=True)
 
-st.markdown(f"<div style='display:flex;gap:8px;flex-wrap:wrap'><div class='entry'>ENTRY {entry:.2f}</div><div class='sl'>SL SHORT {sl:.2f} -{sl_dist:.1f}</div><div class='tp'>TP LONG {tp:.2f} +{tp_dist:.1f} RR 1:{rr_val}</div></div>",unsafe_allow_html=True)
-st.write(f"LOCKED: {signal} | HTF 15M: {htf_trend} | TF: {interval} | Locked: {st.session_state.lock_time} | Live: ${live_price:.2f}")
+if signal=="BUY":
+ st.markdown(f"<div class='buy'>✅ BUY — ENTRY ${entry:.2f} | SL SHORT ${sl:.2f} -${sl_dist:.1f} | TP LONG ${tp:.2f} +${tp_dist:.1f} RR 1:{rr_val} | {mode} | {interval}</div>",unsafe_allow_html=True)
+else:
+ st.markdown(f"<div class='sell'>🔴 SELL — ENTRY ${entry:.2f} | SL SHORT ${sl:.2f} -${sl_dist:.1f} | TP LONG ${tp:.2f} +${tp_dist:.1f} RR 1:{rr_val} | {mode} | {interval}</div>",unsafe_allow_html=True)
 
-st.write(f"### 📈 REAL MT5 CHART — {interval.upper()}")
-tv_sym="OANDA:XAUUSD" if "XAU" in sym else "BINANCE:BTCUSDT"
-tv_int="5" if interval=="5m" else "15"
-components.html(f"""<div id="tv" style="height:500px;"></div><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({{"autosize":true,"height":500,"symbol":"{tv_sym}","interval":"{tv_int}","timezone":"Africa/Johannesburg","theme":"dark","style":"1","container_id":"tv"}});</script>""",height=520)
+st.write(f"Live MT5: ${live_price:.2f} | Signal: {signal} | Mode: {mode}")
 
-if st.button(f"SEND {signal} {interval} ENTRY {entry:.2f} -> 0637247675",type="primary",use_container_width=True):
- msg=f"LOCKED {sym} {signal} {interval} ENTRY {entry:.2f} SL {sl:.2f} -{sl_dist:.1f} TP {tp:.2f} +{tp_dist:.1f} RR 1:{rr_val} HTF {htf_trend} | 0637247675"
- link=f"https://wa.me/{MY_PHONE}?text={requests.utils.quote(msg)}"
- st.link_button("SEND WHATSAPP 0637247675", link, type="primary", use_container_width=True)
- st.balloons()
+# REAL MT5 CHART
+components.html(f"""<div id="tv" style="height:450px;"></div><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({{"autosize":true,"height":450,"symbol":"OANDA:XAUUSD","interval":"{ '5' if interval=='5m' else '15'}","theme":"dark","style":"1","container_id":"tv"}});</script>""",height=470)
+
+if st.button(f"SEND {signal} {interval} {mode} -> 0637247675",type="primary",use_container_width=True):
+ import urllib.parse
+ msg=f"{signal} {sym} {interval} {mode} ENTRY {entry:.2f} SL SHORT {sl:.2f} -{sl_dist:.1f} TP LONG {tp:.2f} +{tp_dist:.1f} RR 1:{rr_val} LIVE {live_price:.2f} | 0637247675"
+ link=f"https://wa.me/{MY_PHONE}?text={urllib.parse.quote(msg)}"
+ st.link_button("SEND TO WHATSAPP 0637247675", link, type="primary", use_container_width=True)
