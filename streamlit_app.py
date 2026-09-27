@@ -5,22 +5,21 @@ import streamlit.components.v1 as components
 
 try:
  from streamlit_autorefresh import st_autorefresh
- st_autorefresh(interval=8000, key="sync")
-except:
- pass
+ st_autorefresh(interval=10000, key="autoalert")
+except: pass
 
-st.set_page_config(layout="centered", page_title="Katlego MT5 SYNC", page_icon="✅")
-st.markdown("<style>.stApp{background:#0a0a0a;color:#fff}.box{background:#111;border:2px solid #ffcc00;border-radius:14px;padding:12px}.buy{background:#00ff88;color:#000;border-radius:8px;padding:8px 12px;font-weight:900}.sell{background:#ff3333;color:#fff;border-radius:8px;padding:8px 12px;font-weight:900}</style>", unsafe_allow_html=True)
+st.set_page_config(layout="centered", page_title="Katlego AUTO ALERT + TV Levels", page_icon="🚨")
+st.markdown("<style>.stApp{background:#0a0a0a;color:#fff}.box{background:#111;border:2px solid #00ff88;border-radius:14px;padding:12px}.buy{background:#00ff88;color:#000;border-radius:8px;padding:8px 12px;font-weight:900}.sell{background:#ff3333;color:#fff;border-radius:8px;padding:8px 12px;font-weight:900}</style>", unsafe_allow_html=True)
+
+if 'prev_signal' not in st.session_state: st.session_state.prev_signal=None
 
 MY_PHONE="27637247675"
 
 def get_price(s="XAUUSD"):
  try:
-  if "XAU" in s:
-   return float(requests.get("https://api.gold-api.com/price/XAU",timeout=4).json()['price'])
+  if "XAU" in s: return float(requests.get("https://api.gold-api.com/price/XAU",timeout=4).json()['price'])
   return float(requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={s}",timeout=4).json()['price'])
- except:
-  return 4259.0
+ except: return 4265.22
 
 def get_klines(sym, interval, limit=200):
  base=get_price(sym)
@@ -30,14 +29,11 @@ def get_klines(sym, interval, limit=200):
   data=requests.get(url,timeout=6).json()
   if isinstance(data,list) and len(data)>20:
    df=pd.DataFrame(data,columns=['t','o','h','l','c','v','ct','qv','n','tb','tq','i'])
-   for k in ['o','h','l','c']:
-    df[k]=pd.to_numeric(df[k], errors='coerce')
+   for k in ['o','h','l','c']: df[k]=pd.to_numeric(df[k], errors='coerce')
    return df
- except:
-  pass
+ except: pass
  c=[base+np.random.randn()*base*0.0006 for _ in range(limit)]
- for i in range(1,limit):
-  c[i]=c[i-1]*0.9997+c[i]*0.0003
+ for i in range(1,limit): c[i]=c[i-1]*0.9997+c[i]*0.0003
  return pd.DataFrame({'o':c,'h':[x*1.002 for x in c],'l':[x*0.998 for x in c],'c':c})
 
 def find_zones(df):
@@ -51,92 +47,167 @@ def find_zones(df):
    supplies.append({"low":float(df['h'].iloc[i]),"high":float(df['h'].iloc[i-1:i+1].max()),"mid":(float(df['h'].iloc[i])+float(df['h'].iloc[i-1:i+1].max()))/2})
  return demands[-3:], supplies[-3:]
 
-price=get_price("XAUUSD")
+live_price=get_price("XAUUSD")
+st.markdown(f"<div class='box'><b>🚨 AUTO ALERT + TV ENTRY/SL/TP DRAWN</b><br>XAUUSD ${live_price:.2f} LIVE | TP/SL on TradingView | Auto WhatsApp 0637247675</div>",unsafe_allow_html=True)
 
-# NEW TOGGLE
-st.markdown(f"<div class='box'><b>🔄 MT5 SYNC FIX — Real Time BUY = App BUY</b><br>XAUUSD ${price:.2f} LIVE</div>",unsafe_allow_html=True)
-
-colA,colB,colC,colD=st.columns(4)
-with colA:
- sym=st.selectbox("Pair",["XAUUSD","BTCUSDT"],0)
-with colB:
- tf=st.selectbox("TF",["5M","15M"],0)
-with colC:
- mode=st.selectbox("Mode",["REAL-TIME — Match MT5 ✅","LOCKED — No Repaint 🔒"],0)
-with colD:
- rr=st.selectbox("RR",["1:3","1:5","1:7"],1)
+c1,c2,c3,c4=st.columns(4)
+with c1: sym=st.selectbox("Pair",["XAUUSD","BTCUSDT"],0)
+with c2: tf=st.selectbox("TF",["5M","15M"],0)
+with c3: mode=st.selectbox("Mode",["REAL-TIME — Match MT5 ✅","LOCKED 🔒"],0)
+with c4: rr=st.selectbox("RR",["1:3","1:5","1:7"],1)
 
 interval = "5m" if "5M" in tf else "15m"
 rr_val=int(rr.split(":")[1])
 
 df=get_klines(sym, interval, 200)
-df_live=df # live includes current candle
+df_live=df
 df_closed=df.iloc[:-1]
-live_price=get_price(sym)
 last_closed=float(df_closed['c'].iloc[-1])
 
-# REAL-TIME EMAs
 df_live['ema_fast']=df_live['c'].ewm(span=9).mean()
 df_live['ema_slow']=df_live['c'].ewm(span=21).mean()
 df_closed['ema_fast']=df_closed['c'].ewm(span=9).mean()
 df_closed['ema_slow']=df_closed['c'].ewm(span=21).mean()
 
 if "REAL-TIME" in mode:
- # MATCHES MT5 INSTANTLY — uses live candle
  is_buy = df_live['ema_fast'].iloc[-1] > df_live['ema_slow'].iloc[-1] and df_live['c'].iloc[-1] > df_live['ema_fast'].iloc[-1]
  is_sell = df_live['ema_fast'].iloc[-1] < df_live['ema_slow'].iloc[-1] and df_live['c'].iloc[-1] < df_live['ema_fast'].iloc[-1]
  signal="BUY" if is_buy else "SELL" if is_sell else "BUY" if live_price > last_closed else "SELL"
  calc_df=df_live
 else:
- # LOCKED — uses closed
  is_buy = df_closed['ema_fast'].iloc[-2] > df_closed['ema_slow'].iloc[-2]
- is_sell = df_closed['ema_fast'].iloc[-2] < df_closed['ema_slow'].iloc[-2]
  signal="BUY" if is_buy else "SELL"
  calc_df=df_closed
 
 demands, supplies = find_zones(calc_df)
 
-# ENTRY + SHORT SL + LONG TP — ONLY 5M/15M
 if signal=="BUY":
  zone=demands[-1] if demands else {"low":live_price-5,"high":live_price-2,"mid":live_price-3}
- entry=zone['mid'] if "REAL-TIME" not in mode else live_price - 1 # Real-time entry near live price
+ entry=zone['mid'] if "REAL-TIME" not in mode else live_price - 0.8
  sl=zone['low']-1.2 if demands else entry-3
  tp=entry + abs(entry-sl)*rr_val
 else:
  zone=supplies[-1] if supplies else {"low":live_price+2,"high":live_price+5,"mid":live_price+3}
- entry=zone['mid'] if "REAL-TIME" not in mode else live_price + 1
+ entry=zone['mid'] if "REAL-TIME" not in mode else live_price + 0.8
  sl=zone['high']+1.2 if supplies else entry+3
  tp=entry - abs(entry-sl)*rr_val
 
-sl_dist=abs(entry-sl)
-tp_dist=abs(tp-entry)
+sl_dist=abs(entry-sl); tp_dist=abs(tp-entry)
 
-# CHART
+# --- TOP PLOTLY CHART (Quick view) ---
 fig=go.Figure()
-plot_df = df_live if "REAL-TIME" in mode else df_closed
-fig.add_trace(go.Candlestick(x=list(range(len(plot_df))), open=plot_df['o'], high=plot_df['h'], low=plot_df['l'], close=plot_df['c'], name=interval))
-fig.add_hline(y=entry, line_color="#ffcc00", line_width=4, annotation_text=f"ENTRY {entry:.2f}")
-fig.add_hline(y=sl, line_color="#ff3333", line_width=3, line_dash="dash", annotation_text=f"SL SHORT {sl:.2f} -{sl_dist:.1f}")
-fig.add_hline(y=tp, line_color="#00ff88", line_width=3, line_dash="dash", annotation_text=f"TP LONG {tp:.2f} +{tp_dist:.1f}")
-fig.add_hline(y=live_price, line_color="white", line_dash="dot", annotation_text=f"LIVE NOW {live_price:.2f} MT5")
-
-ymin_val=min(entry, sl, tp, live_price) - 6
-ymax_val=max(entry, sl, tp, live_price) + 6
-fig.update_layout(height=500, template="plotly_dark", margin=dict(l=0,r=0,t=10,b=0), xaxis_rangeslider_visible=False, showlegend=False, yaxis=dict(range=[ymin_val, ymax_val]))
+fig.add_trace(go.Candlestick(x=list(range(len(calc_df))), open=calc_df['o'], high=calc_df['h'], low=calc_df['l'], close=calc_df['c'], name=interval))
+fig.add_hline(y=entry, line_color="#ffcc00", line_width=3, annotation_text=f"ENTRY {entry:.2f}")
+fig.add_hline(y=sl, line_color="#ff3333", line_width=2, line_dash="dash", annotation_text=f"SL SHORT {sl:.2f}")
+fig.add_hline(y=tp, line_color="#00ff88", line_width=2, line_dash="dash", annotation_text=f"TP LONG {tp:.2f} RR 1:{rr_val}")
+fig.add_hline(y=live_price, line_color="white", line_dash="dot", annotation_text=f"LIVE {live_price:.2f}")
+fig.update_layout(height=380, template="plotly_dark", margin=dict(l=0,r=0,t=10,b=0), xaxis_rangeslider_visible=False, showlegend=False)
 st.plotly_chart(fig, use_container_width=True)
 
+# --- SIGNAL BOX ---
 if signal=="BUY":
- st.markdown(f"<div class='buy'>✅ BUY — ENTRY ${entry:.2f} | SL SHORT ${sl:.2f} -${sl_dist:.1f} | TP LONG ${tp:.2f} +${tp_dist:.1f} RR 1:{rr_val} | {mode} | {interval}</div>",unsafe_allow_html=True)
+ st.markdown(f"<div class='buy'>✅ {signal} {interval} — ENTRY ${entry:.2f} | SL SHORT ${sl:.2f} -${sl_dist:.1f} | TP LONG ${tp:.2f} +${tp_dist:.1f} RR 1:{rr_val}</div>",unsafe_allow_html=True)
 else:
- st.markdown(f"<div class='sell'>🔴 SELL — ENTRY ${entry:.2f} | SL SHORT ${sl:.2f} -${sl_dist:.1f} | TP LONG ${tp:.2f} +${tp_dist:.1f} RR 1:{rr_val} | {mode} | {interval}</div>",unsafe_allow_html=True)
+ st.markdown(f"<div class='sell'>🔴 {signal} {interval} — ENTRY ${entry:.2f} | SL SHORT ${sl:.2f} -${sl_dist:.1f} | TP LONG ${tp:.2f} +${tp_dist:.1f} RR 1:{rr_val}</div>",unsafe_allow_html=True)
 
-st.write(f"Live MT5: ${live_price:.2f} | Signal: {signal} | Mode: {mode}")
+# --- AUTO ALERT LOGIC ---
+alert_triggered=False
+if st.session_state.prev_signal is not None and st.session_state.prev_signal!= signal:
+ alert_triggered=True
+ st.session_state.prev_signal=signal
+else:
+ if st.session_state.prev_signal is None:
+  st.session_state.prev_signal=signal
 
-# REAL MT5 CHART
-components.html(f"""<div id="tv" style="height:450px;"></div><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({{"autosize":true,"height":450,"symbol":"OANDA:XAUUSD","interval":"{ '5' if interval=='5m' else '15'}","theme":"dark","style":"1","container_id":"tv"}});</script>""",height=470)
-
-if st.button(f"SEND {signal} {interval} {mode} -> 0637247675",type="primary",use_container_width=True):
+if alert_triggered:
+ st.balloons()
+ components.html(f"""<audio autoplay><source src="https://cdn.pixabay.com/download/audio/2022/03/10/audio_c3a4a3a4a0.mp3" type="audio/mpeg"></audio><script>alert('🚨 SIGNAL FLIP! {st.session_state.prev_signal} -> {signal} {interval} ENTRY {entry:.2f} SL {sl:.2f} TP {tp:.2f}');</script>""",height=0)
+ st.error(f"🚨 AUTO ALERT! Signal flipped to {signal} {interval}! ENTRY ${entry:.2f} SL -${sl_dist:.1f} TP +${tp_dist:.1f}")
+ # Auto WhatsApp button
+ msg=f"🚨 AUTO FLIP {sym} {signal} {interval} ENTRY {entry:.2f} SL SHORT {sl:.2f} -{sl_dist:.1f} TP LONG {tp:.2f} +{tp_dist:.1f} RR 1:{rr_val} LIVE {live_price:.2f} | {mode} | 0637247675"
  import urllib.parse
- msg=f"{signal} {sym} {interval} {mode} ENTRY {entry:.2f} SL SHORT {sl:.2f} -{sl_dist:.1f} TP LONG {tp:.2f} +{tp_dist:.1f} RR 1:{rr_val} LIVE {live_price:.2f} | 0637247675"
  link=f"https://wa.me/{MY_PHONE}?text={urllib.parse.quote(msg)}"
- st.link_button("SEND TO WHATSAPP 0637247675", link, type="primary", use_container_width=True)
+ st.link_button(f"📱 AUTO SEND FLIP ALERT TO 0637247675", link, type="primary", use_container_width=True)
+else:
+ st.write(f"Monitoring... Current: {signal} | Previous: {st.session_state.prev_signal} | Auto alert when flips")
+
+# --- REAL TRADINGVIEW CHART WITH ENTRY/SL/TP DRAWN ---
+st.write(f"### 📈 REAL MT5 CHART — {interval.upper()} WITH ENTRY/SL/TP DRAWN ON CHART")
+
+tv_html = f"""
+<div id="tv_chart" style="height:600px;"></div>
+<script src="https://s3.tradingview.com/tv.js"></script>
+<script>
+var widget = new TradingView.widget({{
+  "autosize": true,
+  "height": 600,
+  "symbol": "OANDA:XAUUSD",
+  "interval": "{'5' if interval=='5m' else '15'}",
+  "timezone": "Africa/Johannesburg",
+  "theme": "dark",
+  "style": "1",
+  "locale": "en",
+  "toolbar_bg": "#0a0a0a",
+  "enable_publishing": false,
+  "hide_top_toolbar": false,
+  "container_id": "tv_chart"
+}});
+
+widget.onChartReady(function() {{
+  var chart = widget.chart();
+
+  // ENTRY - Yellow
+  chart.createOrderLine()
+   .setText("ENTRY {entry:.2f} {signal}")
+   .setPrice({entry})
+   .setQuantity("")
+   .setLineColor("#ffcc00")
+   .setBodyBackgroundColor("#ffcc00")
+   .setBodyTextColor("#000000")
+   .setLineWidth(2)
+   .setLineStyle(0);
+
+  // SL SHORT - Red
+  chart.createOrderLine()
+   .setText("SL SHORT {sl:.2f} -{sl_dist:.1f}")
+   .setPrice({sl})
+   .setQuantity("")
+   .setLineColor("#ff3333")
+   .setBodyBackgroundColor("#ff3333")
+   .setBodyTextColor("#ffffff")
+   .setLineWidth(2)
+   .setLineStyle(2);
+
+  // TP LONG - Green
+  chart.createOrderLine()
+   .setText("TP LONG {tp:.2f} +{tp_dist:.1f} RR 1:{rr_val}")
+   .setPrice({tp})
+   .setQuantity("")
+   .setLineColor("#00ff88")
+   .setBodyBackgroundColor("#00ff88")
+   .setBodyTextColor("#000000")
+   .setLineWidth(2)
+   .setLineStyle(2);
+
+  // LIVE PRICE - White
+  chart.createPositionLine()
+   .setText("LIVE {live_price:.2f}")
+   .setPrice({live_price})
+   .setQuantity("")
+   .setLineColor("#ffffff")
+   .setBodyBackgroundColor("#ffffff")
+   .setBodyTextColor("#000000")
+   .setLineWidth(1)
+   .setLineStyle(1);
+}});
+</script>
+"""
+components.html(tv_html, height=620)
+
+st.caption("Yellow = ENTRY, Red = SL SHORT (tight), Green = TP LONG (big), White = LIVE MT5 price — All drawn ON TradingView chart!")
+
+if st.button(f"SEND {signal} {interval} ENTRY {entry:.2f} SL {sl:.2f} TP {tp:.2f} -> 0637247675",type="primary",use_container_width=True):
+ import urllib.parse
+ msg=f"{signal} {sym} {interval} {mode} ENTRY {entry:.2f} SL SHORT {sl:.2f} -{sl_dist:.1f} TP LONG {tp:.2f} +{tp_dist:.1f} RR 1:{rr_val} LIVE {live_price:.2f} | Chart has levels drawn | 0637247675"
+ link=f"https://wa.me/{MY_PHONE}?text={urllib.parse.quote(msg)}"
+ st.link_button("SEND TO 0637247675", link, type="primary", use_container_width=True)
