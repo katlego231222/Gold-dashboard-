@@ -3,11 +3,10 @@ import streamlit.components.v1 as components
 import plotly.graph_objects as go
 try:
  from streamlit_autorefresh import st_autorefresh
- st_autorefresh(interval=7000, key="buy_sell_label")
+ st_autorefresh(interval=7000, key="buy_sell_tp")
 except: pass
 
-st.set_page_config(layout="centered", page_title="BUY SELL LABEL", page_icon="🏦")
-if 'last_entry' not in st.session_state: st.session_state.last_entry=0
+st.set_page_config(layout="centered", page_title="BUY SELL + TPs", page_icon="🏦")
 if 'tp1_hit' not in st.session_state: st.session_state.tp1_hit=False
 if 'be_active' not in st.session_state: st.session_state.be_active=False
 
@@ -29,7 +28,7 @@ def get_klines(interval, limit=200):
 live=get_price()
 df=get_klines("15m"); df_c=df.iloc[:-1]
 
-# BANK S&D
+# S&D BANK
 demands=[]; supplies=[]
 for i in range(20, len(df_c)-3):
  body=df_c['c'].iloc[i]-df_c['o'].iloc[i]
@@ -48,27 +47,33 @@ else: tp1=entry-5; tp2=entry-10; tp3=entry-20; hit=live<=tp1
 
 if hit: st.session_state.be_active=True; st.session_state.tp1_hit=True
 sl = entry if st.session_state.be_active else sl_orig
+be_text = "🔒 BE SAFE" if st.session_state.be_active else f"SL ${sl_orig:.2f}"
 
-# --- ONLY BUY / SELL LABEL BIG ---
+# --- BIG BUY/SELL + TPs ---
 if sig=="BUY":
- st.markdown(f"<h1 style='text-align:center;background:#00ff88;color:#000;padding:20px;border-radius:15px;font-size:50px;margin:0'>🟢 BUY</h1>", unsafe_allow_html=True)
+ st.markdown(f"<div style='text-align:center;background:#00ff88;color:#000;padding:18px;border-radius:15px'><h1 style='margin:0;font-size:48px'>🟢 BUY</h1><p style='margin:5px 0 0;font-size:18px;font-weight:900'>ENTRY ${entry:.2f} | {be_text}</p></div>", unsafe_allow_html=True)
 else:
- st.markdown(f"<h1 style='text-align:center;background:#ff4444;color:#fff;padding:20px;border-radius:15px;font-size:50px;margin:0'>🔴 SELL</h1>", unsafe_allow_html=True)
+ st.markdown(f"<div style='text-align:center;background:#ff3333;color:#fff;padding:18px;border-radius:15px'><h1 style='margin:0;font-size:48px'>🔴 SELL</h1><p style='margin:5px 0 0;font-size:18px;font-weight:900'>ENTRY ${entry:.2f} | {be_text}</p></div>", unsafe_allow_html=True)
 
-st.markdown(f"<h3 style='text-align:center'>LIVE ${live:.2f} | ENTRY ${entry:.2f} | { '🔒 BE SAFE' if st.session_state.be_active else 'LIVE' }</h3>", unsafe_allow_html=True)
+# TPs ROW
+c1,c2,c3=st.columns(3)
+c1.metric("TP1 +$5 50%", f"${tp1:.2f}", "✅ HIT BE" if st.session_state.tp1_hit else "TARGET")
+c2.metric("TP2 +$10 30%", f"${tp2:.2f}")
+c3.metric("TP3 +$20 RUNNER", f"${tp3:.2f}")
 
-# Chart
+st.markdown(f"<p style='text-align:center'>LIVE ${live:.2f} | Dist ${abs(live-entry):.1f}</p>", unsafe_allow_html=True)
+
+# CHART WITH ALL LEVELS
 fig=go.Figure()
 fig.add_trace(go.Candlestick(x=list(range(len(df_c))), open=df_c['o'], high=df_c['h'], low=df_c['l'], close=df_c['c']))
 fig.add_hline(y=entry, line_color="yellow", line_width=4, annotation_text=f"ENTRY {entry:.2f} {sig}")
-fig.add_hline(y=sl, line_color="blue" if st.session_state.be_active else "red", line_width=3)
-fig.add_hline(y=tp1, line_color="#00ff88", line_width=2, line_dash="dot")
-fig.add_hline(y=tp2, line_color="#00ff88", line_width=2, line_dash="dash")
-fig.add_hline(y=tp3, line_color="#00ff88", line_width=3)
-fig.add_hline(y=live, line_color="white", line_dash="dot")
+fig.add_hline(y=sl, line_color="blue" if st.session_state.be_active else "red", line_width=3, annotation_text=f"{'BE' if st.session_state.be_active else 'SL'} {sl:.2f}")
+fig.add_hline(y=tp1, line_color="#00ff88", line_width=2, line_dash="dot", annotation_text=f"TP1 {tp1:.2f} +$5")
+fig.add_hline(y=tp2, line_color="#00ff88", line_width=2, line_dash="dash", annotation_text=f"TP2 {tp2:.2f} +$10")
+fig.add_hline(y=tp3, line_color="#00ff88", line_width=3, annotation_text=f"TP3 {tp3:.2f} +$20")
+fig.add_hline(y=live, line_color="white", line_dash="dot", annotation_text=f"LIVE {live:.2f}")
 fig.update_layout(height=500, template="plotly_dark", margin=dict(l=0,r=0,t=0,b=0), xaxis_rangeslider_visible=False)
 st.plotly_chart(fig, use_container_width=True)
 
-c1,c2=st.columns(2)
-c1.metric("ENTRY", f"${entry:.2f}")
-c2.metric("LIVE", f"${live:.2f}", sig)
+if st.button("Reset BE"):
+ st.session_state.tp1_hit=False; st.session_state.be_active=False; st.rerun()
